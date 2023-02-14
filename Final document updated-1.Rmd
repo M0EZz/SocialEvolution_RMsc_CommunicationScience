@@ -1,0 +1,618 @@
+---
+title: "Which factors influence sadness/depression and stress?"
+author: "Roeland Dubèl, Helge Moes, Elizabeth Wang, Selene Cheng"
+date: "2023-02-02"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, include=FALSE)
+```
+
+```{r libraries}
+library("tidyverse")
+library("lubridate")
+library("extrafont")
+library("plotly")
+library("ggrepel")
+```
+
+```{r files}
+proximity <- read_csv("Proximity.csv")
+musicgenrepreference <- read_csv("MusicGenrePreference.csv")
+health <- read_csv("Health.csv")
+flusymptoms <- read_csv("FluSymptoms.csv")
+subjects <- read_csv("Subjects.csv")
+```
+
+```{r tidying_proximity}
+
+#Scope of data: The proximity tibble contains the variables user.id, remote.user.id.if.known, time and prob2. user.id and remote.user.id.if.known refer to the ids of the sender's mobile phone and receiver's mobile phone, indicating that they were within 10 meters of each other. time refers to at which exact point in time the sender and receiver were within 10 meters. prob2 refers to the probability - ranging from 0 to 1 - that the sender and receiver were at the same floor.
+
+#Original primary key: No primary key could be found, indicating that there are probably duplicate rows.
+
+#-------------------------------------------------------------------------------
+
+#proximity %>% 
+#  count(user.id, remote.user.id.if.known, time, prob2) %>% 
+#  filter(n > 1)
+
+#There seem to be duplicate rows given that even when all the keys are used, no primary key can be found.
+
+proximity_tidy <- proximity %>%
+  #Only the unique rows are kept.
+  distinct() %>%
+  #Instances where it simply states that a user is close to oneself, are removed.
+  filter(!(user.id == remote.user.id.if.known))
+
+#proximity_tidy %>% 
+#  count(user.id, remote.user.id.if.known, time) %>% 
+#  filter(n > 1)
+
+#-------------------------------------------------------------------------------
+
+#Primary key after tidying: The primary key after tidying is user.id, remote.user.id.if.known and time. The cases are thus at which point in time, which two people were near to each other.
+
+```
+
+```{r tidying_musicgenrepreference}
+
+#Scope of data: The musicgenrepreference tibble contains user.id, date, and several music genre columns. The user.id refers to the respondent´s id. The date refers to the time of measurement. The several music genre columns indicate the degree of interest the respondent has in the respective music genre, measured on a scale from 1 (slight Interest) to 3 (high interest).
+
+#Original primary key: Originally the primary key was user.id and date.
+
+#-------------------------------------------------------------------------------
+
+#musicgenrepreference %>% 
+#  count(user.id, date) %>% 
+#  filter(n > 1)
+
+#Originally user.id and date is the primary key.
+
+#sum(is.na(musicgenrepreference))
+
+#There are quite a lot of missing values, it is therefore more logical to make transform columns into rows, so that missing values can be removed.
+
+musicgenrepreference_tidy <- musicgenrepreference %>%
+  #The separate genre column names are used as labels for the new music.genre column, the values are transferred to the music.interest column, the missing values are removed.
+  pivot_longer(cols ="indie / alternative rock":"other", names_to = "music.genre", values_to = "music.interest",  values_drop_na = TRUE) %>%
+  #music.interest is split into a column for the code, and one for the label.
+  separate(music.interest, into = c("music.interest.code", "music.interest.label")
+           , sep = " ", extra = "merge")
+
+#head(musicgenrepreference_tidy)
+
+#musicgenrepreference_tidy %>% 
+#  count(user.id, date, music.genre) %>% 
+#  filter(n > 1)
+
+#-------------------------------------------------------------------------------
+
+#Primary key after tidying: The new primary key is user.id, date and music.genre. Each case is thus a user's interest in a genre at a particular moment in time.
+
+```
+
+```{r tidying_health}
+
+#Scope of date: The health table contains user.id, current_weight, current_height, salads_per_week, veggies_fruits_per_day, healthy_diet, aerobic_per_week, sports_per_week, current_smoking and survey.month. current_weight and current_height respectively refer to a respondents weight and height at a moment in time. salads_per_week indicates the amount of salads consumed per week by a respondent. veggies_fruits_per_day refers to the amount of vegetables/fruits eaten per day by a respondent. healthy_diet refers to the overall healthiness of the respondent´s diet, ranging from very unhealthy (1) to very healthy (6). aerobic_per_week refers to the amount of aerobic activity per week. sports_per_week refers to the amount of sporting per week. current_smoking refers to to what extent the respondent smokes: never, once in a while or some days. Lastly, survey.month refers to the time of measurement.
+
+#Original primary key: The primary key is user_id, survey.month.
+
+#-------------------------------------------------------------------------------
+
+#health %>% 
+#  count(user_id, survey.month) %>% 
+#  filter(n > 1)
+
+#The primary key is user_id and survey.month.
+
+#unique(health$current_smoking)
+
+#Current smoking is both represented in values and labels.
+
+#summary(health)
+
+#Current height contains outliers.
+
+health_tidy <- health %>%
+  #We recode the values to their respective labels.
+  mutate(current_smoking=recode(current_smoking, 
+                                "0" = "Never",
+                                "2" = "Once in a while",
+                                "5" = "Some days")) %>%  
+  #We filter out the extreme values.
+  filter(current_height < 1000 | is.na(current_height) | current_weight > 0)
+
+#head(health_tidy)
+
+#-------------------------------------------------------------------------------
+
+#Primary key after tidying: The primary key remained user_id, survey.month. Each case thus represents the status of a respondent at a given time.
+
+```
+
+```{r tidying_flusymptoms}
+
+#Scope of the data: The flusymptoms table contains user_id, time and several columns containing the presence of a specific flu symptom. user_id refers to the respondent´s id. time refers to the time of measurement. The multiple flu symptom columns indicate if the respective fly symptom occurred yes(1) or no (0).
+
+#Original primary key: Originally the primary key was user_id and time.
+
+#-------------------------------------------------------------------------------
+
+#flusymptoms %>% 
+#  distinct() %>%
+#  count(user_id, time) %>% 
+#  filter(n > 1)
+
+#Originally the primary key was user_id and time.
+
+flusymptoms_tidy <- flusymptoms %>%
+  #The data table contains duplicate rows that need to be removed.
+  distinct() %>%
+  #There are two instances of cases in which the values contradict each other: at the same time for the same user, different values occur. These are removed. In addition there also seems to be a wrong date.
+  filter(!(user_id == 4 & time == ymd_hms("2009-01-10 21:39:00")) & 
+          !(user_id == 70 & time == ymd_hms("2009-01-13 14:09:00")) &
+           !(time == ymd_hms("2003-01-01 11:00:00"))) %>%
+  #The labels of the different columns of symptoms are transformed to rows of a symptoms column. The values are put in a values column, missing values are removed. Although not necessary, this is done since we will (mostly) use symptoms as a grouping variable.
+  pivot_longer(cols ="sore.throat.cough":"open.stressed", names_to = "symptoms", values_to = "values",  values_drop_na = TRUE) %>%
+  mutate(symptoms=recode(symptoms,
+                         "sad.depressed" = "sad / depressed",
+                         "nausea.vomiting.diarrhea" = "nausea / vomiting / diarrhea",
+                         "runnynose.congestion.sneezing" = "runnynose / congestion / sneezing",
+                         "open.stressed" = "stressed",
+                         "sore.throat.cough" = "sore throat / cough"))
+
+head(flusymptoms_tidy)
+
+flusymptoms_tidy %>% 
+  count(user_id, time, symptoms) %>% 
+  filter(n > 1)
+
+#Primary key is user_id, time and symptoms.
+
+#-------------------------------------------------------------------------------
+
+#Primary key after tidying: The primary key after tidying is user_id, time and symptoms. Each case thus represents if a respondent has a symptom at a particular moment in time yes or no.
+
+```
+
+```{r tidying_subjects}
+
+#Scope of the data: The subjects table contains user_id, year_school and floor. user_id refers to the respondent´s id. year_school refers to which school year the respondent is in. floor refers to on which floor a respondent lives.
+
+#Original primary key: Originally the primary key was user_id.
+
+#-------------------------------------------------------------------------------
+
+#subjects %>% 
+#  distinct() %>%
+#  count(user_id) %>% 
+#  filter(n > 1)
+
+#Primary key is user_id.
+
+#head(subjects)
+
+#-------------------------------------------------------------------------------
+
+#Primary key after tidying: The primary key remains user_id. Each case thus represents information of a particular respondent.
+
+```
+
+```{r relationships}
+
+  #proximity & subjects:
+
+#user.id acts as a foreign key in the proximity table, given that it is the primary key of the (tidied) subjects table. 
+
+#This linkage would be a one-to-many. Namely every user occurs only once in the subjects table, while a user occurs multiple times in the proximity table.
+
+#10 cases (students) in the subjects table are not present in the proximity table. These seem to miss at random, and therefore do not seem to obscure the quality of the data.
+
+  #musicgenrepreference & subjects:
+
+#user.id acts as a foreign key in the musicgenrepreference table, given that it is the primary key of the (tidied) subjects table. 
+
+#This linkage would be a one-to-many. Namely every user occurs only once in the subjects table, while a user occurs multiple times in the musicgenrepreference table.
+
+#5 cases (students) in the subjects table are not present in the musicgenrepreference table. These seem to miss at random, and therefore do not seem to obscure the quality of the data.
+
+  #health & subjects:
+
+#user.id acts as a foreign key in the health table, given that it is the primary key of the (tidied) subjects table. 
+
+#This linkage would be a one-to-many. Namely every user occurs only once in the subjects table, while a user occurs multiple times in the health table.
+
+#6 cases (students) in the subjects table are not present in the health table. These seem to miss at random, and therefore do not seem to obscure the quality of the data.
+
+  #flusymptoms & subjects:
+
+#user.id acts as a foreign key in the flusymptoms table, given that it is the primary key of the (tidied) subjects table. 
+
+#This linkage would be a one-to-many. Namely every user occurs only once in the subjects table, while a user occurs multiple times in the flusymptoms table.
+
+#19 cases (students) in the subjects table are not present in the flusymptoms table. Although no clear pattern can be found as to why they are missing, it does almost constitute 1/4th of all cases in the subjects table.
+
+#note: In principle more linkages can be made. For example, all tables could be combined with the health table, of which the primary key is user.id and survey.month. However whereas the health table has repeated measures per month, other tables have it on a different scale: per day or per minute. Therefore these tables can only be combined when transformations are made.
+
+#-------------------------------------------------------------------------------
+
+#All cases present.
+#proximity_tidy %>%
+#  anti_join(subjects, by=c("user.id" = "user_id"))
+
+#10 cases missing.
+#subjects %>%
+#  anti_join(proximity_tidy, by=c("user_id" = "user.id"))
+
+#All cases present.
+#musicgenrepreference_tidy %>%
+#  anti_join(subjects, by=c("user.id" = "user_id"))
+
+#5 cases missing.
+#subjects %>%
+#  anti_join(musicgenrepreference_tidy, by=c("user_id" = "user.id"))
+
+#All cases present.
+#health_tidy %>%
+#  anti_join(subjects, by="user_id")
+
+#6 cases missing.
+#subjects %>%
+#  anti_join(health_tidy, by="user_id")
+
+#All cases present.
+#flusymptoms_tidy %>%
+#  anti_join(subjects, by="user_id")
+
+#19 cases missing.
+#subjects %>%
+#  anti_join(flusymptoms_tidy, by="user_id")
+
+```
+
+
+```{r flusymptoms_and_subjects_roelanddubel}
+sad_stress <- flusymptoms_tidy %>%
+  #We create a column that contains the total time span of the measurement period per month.
+  mutate(time = date(time), time_span_months = interval(min(time), max(time)) / months(1)) %>%
+  #We only keep the sadness and stress complaints.
+  filter(symptoms == "sad / depressed" | symptoms == "stressed") %>%
+  #We group by user_id, symptoms (and time span) to count the amount of complaints per subgroup.
+  group_by(user_id, symptoms, time_span_months) %>%
+  summarize(total_symptoms = sum(values)) %>%
+  #We divide this number by the time span, to get the average amount of complaints per month.
+  mutate(average_complaints_p_month = total_symptoms / time_span_months) %>%
+  ungroup() %>%
+  #We only keep the following columns.
+  select(user_id, symptoms, average_complaints_p_month) 
+
+flusymptoms_subjects <- sad_stress %>% 
+  #We join it with the subjects tibble by user id.
+  left_join(subjects, by="user_id") %>%
+  #We change the order and the names of the school year.
+  mutate(year = factor(year_school, levels=c("Freshman",
+                                    "Sophomore",
+                                    "Junior",
+                                    "Senior",
+                                    "GRT / Other"),
+                     labels=c("1st year",
+                              "2nd year", 
+                              "3rd year", 
+                              "4th year", 
+                              "graduate"))) %>%
+  #We drop the floor column and the original school year column.
+  select(-floor, -year_school) %>%
+  #We drop the rows of which the school year is missing.
+  drop_na(year)
+
+#flusymptoms_subjects
+
+#-------------------------------------------------------------------------------
+
+#All cases present.
+#sad_stress %>%
+#  anti_join(subjects, by="user_id")
+
+#19 cases missing.
+#subjects %>%
+#  anti_join(sad_stress, by="user_id")
+
+#note: Of 19 subjects (from the subjects table) we do not have any data about their sadness and stress symptoms. Therefore it has to be taken into account that a relatively large quantity of cases from the subjects table is excluded.
+
+```
+
+```{r flusymptoms_and_musicgenrepreference_helgemoes}
+
+#Time did not correspond, since the variables were measured over different time periods. Therefore, the 'date' variable is excluded and 'total.preference' is created to implement the sum of the 'interest.level.code'.
+favorite_genre <- musicgenrepreference_tidy %>% 
+#user.id and music.genre are grouped upon.
+  group_by(user.id, music.genre) %>%
+#The sum is used to count all the preferences of a particular music genre for a user based on the interest.level.code.
+  summarise(total.preference = sum(as.double(music.interest.code))) %>%
+#Re-arrange so that the music.genre with the highest total.preference for every user is on top.
+  arrange(user.id, desc(total.preference)) %>%
+#Slice_max allows for  multiple favorite music genres to coexist if they have the same highest score.
+  slice_max(total.preference) %>%
+#Total.preference is excluded of the data, since it was solely used to organize the data set.
+  select(-total.preference)
+
+sad_stress2 <- flusymptoms_tidy %>%
+  #Only keeping sad and stressed symptoms.
+  filter(symptoms == c("sad / depressed", "stressed")) %>%
+  rename("user.id" = "user_id") %>%
+  #Get the sum of all symptom occurrences.
+  group_by(user.id, symptoms) %>%
+  summarize(n = sum(values))
+
+#Combining tables.
+favorite_genre_sad_or_stress <- sad_stress2 %>%
+  left_join(favorite_genre, by = "user.id") %>%
+  rename(symptom.score = n) %>%
+  drop_na()
+
+#-------------------------------------------------------------------------------
+
+#34 cases missing.
+#favorite_genre %>%
+#  anti_join(sad_stress2, by="user.id")
+
+#no cases missing.
+#sad_stress2 %>%
+#  anti_join(favorite_genre, by="user.id")
+
+#note: 34 respondents their favorite music genres do not have any overlap with the table on sadness and stress symptoms. Therefore it has to be taken into account that a relatively large quantity of cases from the created favorite music genre table is excluded.
+
+```
+
+```{r health_and_flusymptoms_elizabethwang}
+#Get relevant data for the RQ from Health_tidy table.
+exercise_diet <- health_tidy %>%
+  #Recode healthy diet into numerical values.
+  mutate(healthy_diet = recode(healthy_diet,
+                                 "Very healthy" = 6,
+                                 "Healthy" = 5,
+                                 "Average" = 4,
+                                 "Below average" = 3,
+                                 "Unhealthy" = 2,
+                                 "Very unhealthy" = 1)) %>%
+  #Calculate the average exercise time and average healthy diet level in 2008.
+  group_by(user_id) %>%
+  summarize(exercise = mean(aerobic_per_week) + mean(sports_per_week),
+            diet = mean(healthy_diet)) %>%
+  #Categorizing healthy diet levels into healthy (lower than 3) vs unhealthy (equal to or higher than 3).
+  mutate(diet = ifelse(diet <= 3, "Unhealthy Diet", "Healthy Diet"))
+
+
+#Get relevant data for the RQ from flusymptoms_tidy table.
+#calculate how many times sad/depression symptoms hit each respondent in 2009.
+depression <- flusymptoms_tidy %>%
+  filter(symptoms == "sad / depressed") %>%
+  group_by(user_id) %>%
+  summarize(depression = sum(values))
+
+#Joining the two tables, there is one-to-one relation between the two tables, joining by user_id.
+health_depression <- depression %>% 
+  inner_join(exercise_diet, by = "user_id") %>%
+  na.omit() 
+
+#-------------------------------------------------------------------------------
+
+#13 cases missing.
+#exercise_diet %>%
+#  anti_join(depression, by="user_id")
+
+#6 cases missing.
+#depression %>%
+#  anti_join(exercise_diet, by="user_id")
+
+#note: There are 13 cases in the created exercise and diet table, who are not present in the table with depression symptoms. In addition there also 6 cases in which we do have information on their depression symptoms, but do not have any information on their exercise and diet patterns. Therefore it has to be taken into account that a relatively large quantity of cases is not taken into account.
+
+```
+
+```{r health_and_flusymptoms_selenecheng}
+
+exercise <- health_tidy %>%
+#Combine aerobic_per_week and sports_per_week to exercise_per_week.
+#In addition survey.month is transformed to a date object.
+  mutate(exercise_per_week = aerobic_per_week+sports_per_week,
+         survey.month = ymd(paste0(as.character(format(survey.month, nsmall= 2)), ".01")))%>% 
+  select(user_id,
+         healthy_diet,
+         exercise_per_week,
+         survey.month) %>% 
+  arrange(user_id)
+
+sad_or_stress_month <- flusymptoms_tidy %>%
+  #create new variable -> survey.month.
+  mutate(survey.month = floor_date(time, unit="month")) %>%
+  #Only choose sad/depressed and stressed.
+  filter(symptoms == "sad / depressed" | symptoms == "stressed")%>%
+  rename(health = symptoms) %>%
+  group_by(user_id, survey.month, health) %>%
+  #Count the days of feeling sad/depressed and stressed in one month.
+  summarise(days_sad = sum(values))
+
+#Join tables.
+exercise_sad_or_stress <- exercise %>%
+#Use scale to present the level of healthy_diet.
+  mutate(diet = as.numeric(factor(healthy_diet, 
+         levels=c("Very unhealthy",
+                  "Unhealthy",
+                  "Below average", 
+                  "Average",
+                  "Healthy", 
+                  "Very healthy")))) %>%
+#Joined by key "user_id" and "survey.month".
+  inner_join(sad_or_stress_month, by = c("user_id", "survey.month")) %>% 
+  group_by(user_id, health) %>%
+#Created new variables to show the changes of health behavior and health situation.
+  mutate(changes_exercises = exercise_per_week - lag(exercise_per_week), 
+         changes_health = days_sad - lag(days_sad),
+         changes_diet = diet-lag(diet)) %>%
+#Use character variables to categorize the changes of diet to less healthy, no change, and more healthy.
+  mutate(changes_diet = ifelse(changes_diet < 0, "less healthy", 
+                 ifelse(changes_diet == 0, "no change", "more healthy")))%>%
+#Selected only necessary variables.
+  select(user_id,
+         survey.month,
+         health,
+         changes_exercises,
+         changes_health,
+         changes_diet) %>%
+  filter (survey.month == ymd("2009-04-01")) %>%
+#Remove missing values.
+  na.omit()
+
+#-------------------------------------------------------------------------------
+
+#39 cases missing.
+#exercise %>%
+#  anti_join(sad_or_stress_month, by="user_id")
+
+#0 cases missing.
+#sad_or_stress_month %>%
+ # anti_join(exercise, by="user_id")
+
+#note: There are 39 cases in the created exercise table, which do not have any overlap in the sad or stress symptom table.Therefore it has to be taken into account that a relatively large quantity of cases is not taken into account.
+
+```
+
+
+## Visualisation Roeland Dubèl
+```{r visualisation_roeland, include = TRUE}
+
+#font_import(pattern="calibril") importing fonts is dependent on the type of device you use. Calibri is a windows font and is therefore difficult to convert to MAC OS / Linux. Therefore the font is commented out: the knitted document does show the version where Calibri light is used.
+
+font = NA
+#Commented out given that putting the font to Calibri light can thus give an error in non-Windows devices.
+#font = "Calibri Light"
+
+flusymptoms_subjects %>%
+  #We rename and reorder the factor, so that stressed will be the second graph in facet_wrap, putting the more clear pattern of stressed to the right.
+  mutate(symptoms = factor(symptoms, 
+                           levels=c("sad / depressed", "stressed"), 
+                           labels=c("Depressed", "Stressed"))) %>%
+  ggplot() +
+  #We map the variables, and choose to get the mean score.
+  geom_bar(mapping = aes(x = year, y = average_complaints_p_month, 
+                         fill=symptoms),
+           stat = "summary",
+           fun = "mean",
+           position = "dodge") +
+  #We create individual plots for each type of symptom next to each other. Doing so will make the patterns over time pop more.
+  facet_wrap(.~ symptoms, nrow = 1) +
+  #We add a text box in the stressed graph, to underline the strong pattern of stress.
+  geom_label(data = data.frame(x = 3, y = .50,
+                               symptoms = "Stressed", label = "Stress peaks in the 3rd year,\n after which it declines"), family=font, alpha = .80, aes(x = x, y = y, label = label), size = 3.5) +
+  theme_minimal() +
+  #We select the bar colors for each graph. Blue is often related to sadness, whereas red is often related to stress.
+  scale_fill_manual(values=c("steelblue","tomato")) +
+  #We change the font.
+  theme(text = element_text(family = font),
+        legend.position = "none", 
+        #We turn the x axis to make it more readable.
+        axis.text.x = element_text(angle = 45, hjust=1),
+        #We put a bit more space between the y axis and the label.
+        axis.title.y = element_text(margin = margin(r = 10)),
+        #We put the title in the middle
+        plot.title = element_text(hjust = 0.5),
+        #As well as the subtitle.
+        plot.subtitle = element_text(hjust = 0.5),
+        #We change the color of the facet labels background.
+        strip.background = element_rect(color= NA, fill="grey90"),
+        #We change the size and put the text in bold.
+        strip.text.x = element_text(size = 10, face = "bold")) +
+  #We add the labels, titles and the caption.
+  labs(x ="", y = "Average symptoms\nper student per month", 
+       title = substitute(paste(bold("How does depression and stress develop during university?"))),
+       subtitle ="Average depression and stress symptoms across different academic years",
+       caption = "Data from Social Evolution dataset")
+```
+
+The graph above highlights how often students on average felt depressed or stressed in a typical month. In addition it highlights how the occurance of these symptoms differs per academic year.
+
+## Visualisation Helge Moes
+```{r visualisation_helge, include = TRUE}
+
+# Final_Plot 
+final_plot <- favorite_genre_sad_or_stress %>%
+  ggplot() +
+  #By reordering 'music.genre' with 'symptom.score', the number of preference ratings, where the less represented finding 'jazz' is portrayed left and the most represented finding 'techno / lounge / electronic.' 
+  geom_bar(mapping = aes(x = reorder(music.genre, symptom.score, FUN=sum), y = symptom.score, fill = symptoms),
+           position = "dodge", 
+           stat = "identity") +
+  #The colors are used to visually distinguish the bars of stressed and depressed
+          scale_fill_manual(values = c("darkorange1", "forestgreen")) +
+  #The 'theme_classic' is chosen to generate a plot that is easy to be understood by the general reader
+          theme_classic(base_size = 12, base_family = "Arial") + 
+  #The labels are used to state the x and y axis and to display the original research question as a subtitle         
+          labs(subtitle = "To what extent does depressed or stressed symptoms correlate to the particular music genre among the participants?",
+               x = "music genre",
+               y = "symptom score") +
+  #The legend is placed at the right and states the different symptoms that are measured: 'stressed' and 'depressed'
+          theme(legend.position = "right", axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(face = "bold")) +
+          ggtitle("Music Genre Preference based on Stress and Depressed Symptoms") 
+
+#Final_Plot
+#For an interactive version that allows you to retrieve the information of each specific column, use the ggplotly() function below:
+ggplotly(final_plot) %>%
+  layout(showlegend = TRUE,
+         xaxis = list(title = "music genre"),
+         yaxis = list(title = "symptom score"))
+
+```
+
+The graph portrays the the music genre, the corresponding symptom score that is based on the total number of counts users experienced stressed or depressed symptoms and consists of 79 users that participated in the measurement of the data. 
+
+Based on the graph, one can deduct the frequency of participants that experience stress or depressed symptoms. For instance, the participants that enjoy 'jazz' have little to no depressed or stressed symptoms. Based on this research, the emotional state of stressed and depressed is highest for the category "techno / lounge / electronic." Overall, it is evident that stress ratings are more present than depressed ratings based on the music preference of the participants. 
+
+To answer the research question: "To what extent does depressed or stressed symptoms correlate to the particular music genre among the participants?" We can conclude that depressed symptoms are more present for participants who prefer 'country / folk' music and stress symptoms are in general more present for other music genres, in particular 'techno / lounge / electronic.'
+
+## Visualisation Elizabeth Wang
+```{r visualisation_elizabeth, include = TRUE}
+#creating a graph in order to answer the research question: To what extent was there a relationship between exercise behavior and sad/depression symptoms and how was the relationship different for people with healthy and unhealthy diets?
+
+ggplot(data = health_depression, mapping = aes(x = exercise, y = depression, color = diet)) + 
+  labs(title = "More frequent exercise indicated fewer sad/depressed symptoms",
+       x = "Exercise behaviours (times per week)", 
+       y = "Sad/depression symtpoms (times)", 
+       caption = "Exercise behaviour was measured from September, 2008 to April, 2009\nSad/depression symptoms were measured from January to June, 2009",
+       color = "Diet") + #adding caption to explain when the data was collected. Giving different colors to different diets to distinguish them.
+  geom_point(size = 2, position = "jitter") +  #a scatter plot to show the relationship between 2 continuous variables. Jitter to make the graph more revealing at larger scales
+  scale_color_brewer(palette = "Dark2") + #the palette "Dark2" will apply dark green and orange, which can well represent healthy diet (green) and unhealthy diet (orange). Green is commonly associated with healthy things while orange/red is associated with unhealthy things.
+  theme_gray(base_size = 12, base_family = "sans") + #gray background makes the plot perceived as a single visual entity. The gray background also gives the plot a similar typographic color to the text, ensuring that the graphics fit in with the flow of a document without jumping out with a bright white background. The white lines make it easier to spot the position (values) of a dot. The font and size are close to APA7 style, and easy to read.
+  theme(legend.position = "right")    #it is clear to put the legend at the right, so readers can immediately see what the different colors mean
+```
+
+The graph shows the relationship between exercise behavior and sad/depression symptoms for people with healthy and unhealthy diets.
+- People who exercised more frequently reported fewer sad/depression symptoms. When people did not exercise much, they were more likely to report serious sad/depression symptoms. The relationship was not different for different diets, which indicates that encouraging exercise behavior can effectively reduce sad/depression symptoms.
+- More people with healthy diets reported fewer sad/depression symptoms, which indicates the importance of encouraging healthy diets.
+- People with healthy diets exercised more frequently than people with unhealthy diets.
+
+## Visualisation Selene Cheng
+``` {r visualisation_selene, include = TRUE}
+new_data2<- select(exercise_sad_or_stress, -changes_diet) 
+ggplot(exercise_sad_or_stress,aes(x=changes_exercises, y=changes_health, 
+           shape = health)) +
+  geom_point(aes(colour = changes_diet),size = 4) + 
+  geom_vline(xintercept = 0, color = "orange")+
+  geom_hline(yintercept = 0,color = "orange")+
+  facet_wrap(~changes_diet)+
+  labs(
+    x = "changes in the amount of exercises per week",
+    y = "changes in the days feeling depressed\n or stressed",
+    colour = "diet",
+    title = "Does the changes in health reflect the changes in health behavior? ",
+    subtitle = "changes in health behavior and health situation\nfrom 2009.03 to 2009.04",
+    caption = "Above 0: amount of exercise increased \n feel more depressed or stressed \n\n Below 0 :amount of exercise decreased \n feel less depressed or stressed "
+  ) +
+  theme_bw()+
+  theme(axis.title=element_text(size=12),
+        legend.text=element_text(size=12),
+        strip.text = element_text(size = 12, color = "dark red"),
+        plot.title=element_text(size=14,face = "bold"),
+        plot.subtitle = element_text(size=12))
+```
