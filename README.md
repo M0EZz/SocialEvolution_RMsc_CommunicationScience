@@ -1,4 +1,4 @@
-# SocialEvolution (RMsc) CommunicationScience
+# SocialEvolution (RMsc) Communication Science
 
 Source: http://realitycommons.media.mit.edu/index.htmlLinks to an external site.
 
