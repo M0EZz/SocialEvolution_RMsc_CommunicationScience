@@ -1,6 +1,6 @@
 ---
 title: "Which factors influence sadness/depression and stress?"
-author: "Roeland Dubèl, Helge Moes, Elizabeth Wang, Selene Cheng"
+author: "Helge Moes"
 date: "2023-02-02"
 output:
   html_document: default
